@@ -206,7 +206,8 @@ class ActionQueue:
             if start_step + i > self.latest_step
         ]
         if not new:
-            raise TimeoutError("incoming action chunk is entirely stale")
+            self.actions = []
+            return False
         old = [a for a in self.actions if a.step > self.latest_step]
         self.last_chunk_size = len(values)
         if self.config.temporal and old:
@@ -232,6 +233,7 @@ class ActionQueue:
                 for a in new
             ]
         self.actions = new
+        return True
 
     def pop(self, step, now):
         now = finite(now, "now")

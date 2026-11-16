@@ -65,7 +65,7 @@ def preflight(settings, engine, output):
         (output / "result.json").write_text(json.dumps(result, indent=2, allow_nan=False))
 
 
-def _execute(settings, engine, duration, *, motion):
+def _execute(settings, engine, duration, *, motion, record=None):
     from .action_runtime import ActionRuntime
     from .robot import OneroRobot
 
@@ -84,35 +84,55 @@ def _execute(settings, engine, duration, *, motion):
         robot.connect()
         runtime = ActionRuntime(engine, settings)
         epoch = time.monotonic()
+        if record is not None:
+            record.control_started(epoch)
         end = float("inf") if duration is None else epoch + duration
-        last_step = -1
+        cycle = 0
         last_action_time = None
         while time.monotonic() < end:
-            now = time.monotonic()
-            step = int((now - epoch) * settings.fps)
-            if step <= last_step:
-                time.sleep(max(0, min(end, epoch + (last_step + 1) / settings.fps) - now))
-                continue
+            cycle_started = time.monotonic()
             observation = robot.get_observation()
             captured = time.monotonic()
-            step = int((captured - epoch) * settings.fps)
-            action = runtime.tick(observation, step, captured)
-            last_step = step
+            action = (
+                runtime.take_action(captured)
+                if settings.processing.chunked
+                else runtime.tick(observation, cycle, captured)
+            )
+            if record is not None:
+                record.cycle(runtime)
             if time.monotonic() >= end:
                 break
             if action is not None:
                 if motion:
-                    robot.send_action(action)
+                    if record is not None:
+                        record.command_attempt()
+                    accepted = robot.send_action(action)
                     sent += 1
                 else:
+                    accepted = action
                     preview.append([action[k] for k in FEATURES])
+                if record is not None:
+                    record.action(observation, action, accepted)
                 last_action_time = time.monotonic()
             elif last_action_time is not None:
                 if time.monotonic() - last_action_time > settings.robot.command_timeout_s:
                     raise TimeoutError("action queue starved; dispatch remains disabled")
             elif time.monotonic() - epoch > settings.processing.max_chunk_age_s:
                 raise TimeoutError("no valid future action arrived before the startup deadline")
+            if settings.processing.chunked and runtime.needs_observation():
+                # As in main: publish the available action, then capture the
+                # next model observation against that executed action index.
+                observation = robot.get_observation()
+                runtime.submit_observation(observation, time.monotonic())
+            cycle += 1
+            remaining = min(
+                end - time.monotonic(), 1 / settings.fps - (time.monotonic() - cycle_started)
+            )
+            if remaining > 0:
+                time.sleep(remaining)
     finally:
+        if record is not None:
+            record.control_stopped()
         try:
             if runtime is not None:
                 runtime.close()
@@ -133,16 +153,34 @@ def _execute(settings, engine, duration, *, motion):
 
 def run(settings, duration=None):
     from .jax_policy import create_policy
+    from .run_log import RunLog
 
-    engine = create_policy(settings)
+    record = RunLog(settings)
+    engine = None
+    outcome = {"status": "failed"}
     try:
+        engine = create_policy(settings)
+        record.model(engine)
         if engine.contract.get("test_only", False):
             raise ValueError("test-only checkpoint cannot be used for motion")
-        result, _preview = _execute(settings, engine, duration, motion=True)
+        result, _preview = _execute(settings, engine, duration, motion=True, record=record)
+        outcome = {"status": "completed", **result}
         return result
+    except KeyboardInterrupt:
+        outcome = {"status": "stopped_by_operator"}
+        raise
+    except BaseException as exc:
+        outcome = {"status": "failed", "error": str(exc), "error_type": type(exc).__name__}
+        raise
     finally:
-        if hasattr(engine, "close"):
-            engine.close()
+        try:
+            if hasattr(engine, "close"):
+                engine.close()
+        except BaseException as exc:
+            outcome.update(status="failed", close_error=str(exc))
+            raise
+        finally:
+            record.finish({**outcome, "time_limit_s": duration})
 
 
 def shadow(settings, duration, output):

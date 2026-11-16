@@ -251,7 +251,7 @@ def test_cli_normal_run_is_continuous_despite_legacy_yaml_duration(
 
 @pytest.mark.parametrize("continuous", [True, False])
 def test_continuous_run_passes_sixty_seconds_and_cleans_up_on_interrupt(
-    tiny_model, monkeypatch, continuous
+    tiny_model, monkeypatch, continuous, tmp_path
 ):
     from types import SimpleNamespace
 
@@ -289,6 +289,7 @@ def test_continuous_run_passes_sixty_seconds_and_cleans_up_on_interrupt(
 
         def send_action(self, value):
             sent_at.append(clock.now)
+            return value
 
         def disconnect(self):
             closed.add("robot")
@@ -307,6 +308,10 @@ def test_continuous_run_passes_sixty_seconds_and_cleans_up_on_interrupt(
         def close(self):
             closed.add("runtime")
 
+        def diagnostics(self):
+            return {"received_chunks": 0}
+
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(cli.time, "monotonic", lambda: clock.now)
     monkeypatch.setattr(cli, "readonly_observation", lambda settings: {})
     monkeypatch.setattr(policy_module, "create_policy", lambda settings: Engine())
@@ -322,6 +327,11 @@ def test_continuous_run_passes_sixty_seconds_and_cleans_up_on_interrupt(
             cli.run(settings, 60)
         assert sent_at == []
     assert closed == {"runtime", "robot", "engine"}
+    report_path = next((tmp_path / "runs").glob("run-*/result.json"))
+    report = json.loads(report_path.read_text())
+    assert report["sent_actions"] == len(sent_at)
+    assert report["status"] == ("stopped_by_operator" if continuous else "failed")
+    assert report["time_limit_s"] == (None if continuous else 60)
 
 
 @pytest.mark.parametrize(
@@ -342,12 +352,12 @@ def test_real_model_processing_preflight(tiny_model, tmp_path, monkeypatch, mode
     monkeypatch.setattr(cli, "readonly_observation", lambda settings: observation())
     output = tmp_path / "processing-preview"
     result = preflight(settings, LocalPolicy(settings), output)
-    assert result["ok"] and result["preview_steps"] == 3
+    assert result["ok"] and result["preview_steps"] == 2
     assert result["processing"]["inference_mode"] == mode
     assert result["processing"]["kalman_temporal_smoothing"] is combined
     assert not result["motion_attempted"] and not result["executed_actions"]
     values = np.load(output / "processed_actions.npy")
-    assert values.shape == (3, 16) and np.isfinite(values).all()
+    assert values.shape == (2, 16) and np.isfinite(values).all()
 
 
 def test_chunk_contract_and_structured_policy_output(tiny_model):

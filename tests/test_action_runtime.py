@@ -62,7 +62,7 @@ def test_runtime_consumes_fresh_result_and_resets_between_instances():
             )
         result = runtime.tick({}, 1, start + 1 / 30)
         assert len(result) == 16
-        assert runtime.queue.latest_step == 1
+        assert runtime.queue.latest_step == 0
     finally:
         runtime.close()
     assert not runtime.worker.thread.is_alive()
@@ -82,3 +82,66 @@ def test_close_discards_late_result_and_reports_unstopped_worker():
     worker.close()
     assert worker.result is None
     assert not worker.submit({}, 2, time.monotonic())
+
+
+def test_waiting_and_loop_delays_do_not_skip_unexecuted_predictions():
+    class SequenceEngine(Engine):
+        def predict_chunk(self, raw):
+            super().predict_chunk(raw)
+            values = np.zeros((16, 16))
+            values[:, 1] = np.arange(16)
+            return values
+
+    engine = SequenceEngine()
+    settings = SimpleNamespace(
+        processing=ProcessingConfig(inference_mode="temporal_smoothing"),
+        fps=30,
+        robot=SimpleNamespace(command_timeout_s=0.5),
+    )
+    runtime = ActionRuntime(engine, settings)
+    try:
+        assert runtime.tick({}, 0, 0.0) is None
+        assert engine.started.wait(1)
+        assert runtime.tick({}, 6, 0.2) is None
+        engine.gate.set()
+        with runtime.worker.condition:
+            assert runtime.worker.condition.wait_for(
+                lambda: runtime.worker.result is not None, timeout=1
+            )
+        first = runtime.tick({}, 7, 7 / 30)
+        assert first["left_joint_2.pos"] == 0.0
+        second = runtime.tick({}, 40, 40 / 30)
+        assert second["left_joint_2.pos"] == 1.0
+        assert runtime.queue.latest_step == 1
+    finally:
+        engine.gate.set()
+        runtime.close()
+
+
+def test_prediction_anchor_is_latest_consumed_action_without_extra_offset():
+    engine = Engine()
+    engine.gate.set()
+    settings = SimpleNamespace(
+        processing=ProcessingConfig(inference_mode="kalman_filter"),
+        fps=30,
+        robot=SimpleNamespace(command_timeout_s=0.5),
+    )
+    runtime = ActionRuntime(engine, settings)
+    try:
+        assert runtime.submit_observation({}, 0.0)
+        with runtime.worker.condition:
+            assert runtime.worker.condition.wait_for(
+                lambda: runtime.worker.result is not None, timeout=1
+            )
+            assert runtime.worker.result[0] == 0
+        for i in range(8):
+            assert runtime.take_action(i / 30) is not None
+        assert runtime.queue.latest_step == 7
+        assert runtime.submit_observation({}, 8 / 30)
+        with runtime.worker.condition:
+            assert runtime.worker.condition.wait_for(
+                lambda: runtime.worker.result is not None, timeout=1
+            )
+            assert runtime.worker.result[0] == 7
+    finally:
+        runtime.close()

@@ -125,8 +125,8 @@ def test_queue_drops_expired_steps_and_never_replays():
     assert queue.pop(2, 0.2)[FEATURES[1]] == 2
     with pytest.raises(ValueError, match="once"):
         queue.pop(2, 0.3)
-    with pytest.raises(TimeoutError, match="stale"):
-        queue.accept(0, chunk[:2], 0.2)
+    assert not queue.accept(0, chunk[:2], 0.2)
+    assert queue.actions == []
 
 
 def test_blending_preserves_oldest_contributor_expiry():

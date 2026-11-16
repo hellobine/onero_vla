@@ -11,7 +11,7 @@ git clone --branch v0.7.0 https://github.com/huggingface/lerobot.git lerobot
 git -C lerobot checkout --detach 410c095eacc0011d998a73383eb94abed2715af0
 git clone --branch origin https://github.com/hellobine/onero_vla.git lerobot_robot_onero
 cd lerobot_robot_onero
-bash scripts/install.sh --lerobot-path ../lerobot --release 0.3.2
+bash scripts/install.sh --lerobot-path ../lerobot --release 0.3.3
 ```
 
 机器人站点基线为 Ubuntu 24.04 / Python 3.12 / ROS 2 Jazzy。
@@ -115,6 +115,8 @@ uv run --no-sync onero-infer run --config configs/customer.yaml --enable-motion
 `run` 先只读采集并预热模型，再连接控制通道。正常启动持续推理，按 Ctrl+C 退出；
 仅在显式传入 `--duration` 时限时运行，加载与预热另计。
 `runtime.duration_s` 只作为 `shadow` 的默认预览时长，不限制正常推理。
+动作序号按实际取出执行的动作推进，等待模型或控制循环变慢时不按墙钟跳过预测行；
+预测块以最新已执行动作序号为锚点，与参考主线的异步客户端一致。
 正在执行的模型调用返回后再检查期限，不承诺强制中断模型计算。
 控制频率以实测为准；超时会报错，不能自动放宽期限。
 动作下发与参考主线 `4fcfbcf2` 的 H1 逻辑一致：按 16 维绝对位置协议发送预测及处理后的关节目标，
@@ -124,6 +126,10 @@ uv run --no-sync onero-infer run --config configs/customer.yaml --enable-motion
 
 Ctrl+C 退出。软件停止发布不等于物理停止，现场必须保留急停并遵循底层控制器停止规程。
 同用户控制锁只协调使用本插件的进程，不阻止其他 ROS 发布者。
+
+每次 `run` 自动保存到 `runs/run-*`：`events.jsonl` 记录反馈、目标、动作序号、队列和预测耗时，
+`result.json` 记录频率、最大动作间隔、发送数及退出原因；Ctrl+C 后同样保留。
+相机仍实时读取，默认不把图像保存为数据集。日志写入失败会报告，不改变动作值或中止控制。
 
 ## 时序平滑与卡尔曼
 

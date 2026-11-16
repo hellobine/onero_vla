@@ -38,7 +38,9 @@ class ChunkWorker:
                 raw, start, stamp = self.pending
                 self.pending = None
             try:
-                value = (start, self.engine.predict_chunk(raw), stamp)
+                started = time.monotonic()
+                actions = self.engine.predict_chunk(raw)
+                value = (start, actions, stamp, time.monotonic() - started)
             except BaseException as exc:
                 value = exc
             with self.condition:
@@ -68,7 +70,7 @@ class ChunkWorker:
 
 
 class ActionRuntime:
-    """Call once per wall-clock control step, after obtaining fresh physical feedback."""
+    """Control-loop state with an action cursor driven by consumed queue entries."""
 
     def __init__(self, engine, settings):
         self.engine, self.settings = engine, settings
@@ -76,6 +78,12 @@ class ActionRuntime:
         self.filter = ActionFilter(settings.processing, settings.fps)
         self.worker = None
         self.closed = False
+        self.received_chunks = 0
+        self.discarded_chunks = 0
+        self.last_inference_s = None
+        self.empty_ticks = 0
+        self.underflow_ticks = 0
+        self.last_chunk_start_step = None
         if settings.processing.chunked:
             engine.validate_chunk_mode()
             self.worker = ChunkWorker(engine)
@@ -89,18 +97,56 @@ class ActionRuntime:
             action = self.engine.select(raw)
             if time.monotonic() - start > self.settings.robot.command_timeout_s:
                 raise TimeoutError("policy action arrived after its command deadline")
+            self.queue.advance(self.queue.latest_step + 1)
             return self.filter.apply(action)
-        self.queue.advance(step - 1)
+        # `step` labels the control-loop tick, not the action cursor. In main,
+        # the cursor advances only when an action is actually consumed.
+        action = self.take_action(now)
+        self.submit_observation(raw, now)
+        return action
+
+    def take_action(self, now=None):
+        if self.closed:
+            raise RuntimeError("action runtime is closed")
+        now = time.monotonic() if now is None else now
         result = self.worker.take()
         if result is not None:
-            start, actions, captured_at = result
-            self.queue.accept(start, actions, captured_at)
-        action = self.queue.pop(step, now)
-        # The observation at step N predicts N+1 onwards, as in the reference wire.
-        # One outstanding request bounds memory and prevents an inference backlog.
-        if self.queue.needs_prediction():
-            self.worker.submit(raw, step + 1, now)
+            start, actions, captured_at, self.last_inference_s = result
+            self.last_chunk_start_step = start
+            self.received_chunks += 1
+            if not self.queue.accept(start, actions, captured_at):
+                self.discarded_chunks += 1
+        if not self.queue.actions:
+            self.empty_ticks += 1
+            if self.queue.latest_step >= 0:
+                self.underflow_ticks += 1
+            return None
+        action = self.queue.pop(self.queue.actions[0].step, now)
         return None if action is None else self.filter.apply(action)
+
+    def needs_observation(self):
+        return not self.worker.busy and self.queue.needs_prediction()
+
+    def submit_observation(self, raw, captured_at=None):
+        if self.closed:
+            raise RuntimeError("action runtime is closed")
+        if self.needs_observation():
+            captured_at = time.monotonic() if captured_at is None else captured_at
+            # Main tags a prediction with max(latest executed action, 0).
+            return self.worker.submit(raw, max(self.queue.latest_step, 0), captured_at)
+        return False
+
+    def diagnostics(self):
+        return {
+            "action_step": self.queue.latest_step,
+            "queue_size": len(self.queue.actions),
+            "received_chunks": self.received_chunks,
+            "discarded_chunks": self.discarded_chunks,
+            "empty_ticks": self.empty_ticks,
+            "underflow_ticks": self.underflow_ticks,
+            "last_chunk_start_step": self.last_chunk_start_step,
+            "last_inference_s": self.last_inference_s,
+        }
 
     def close(self):
         self.closed = True
@@ -124,10 +170,12 @@ def preview_processing(engine, raw, settings):
     queue = ActionQueue(config)
     queue.accept(0, first, 0.0)
     output = [filter_.apply(queue.pop(0, 0.0))]
-    queue.accept(1, second, 0.0)
-    for step in range(1, len(second) + 1):
+    queue.accept(0, second, 0.0)
+    for step in range(1, len(second)):
         value = queue.pop(step, step / settings.fps)
         if value is None:
             raise ValueError("processing preview unexpectedly lost an action")
         output.append(filter_.apply(value))
-    return np.concatenate([first[:1], second]), np.array([[v[k] for k in FEATURES] for v in output])
+    return np.concatenate([first[:1], second[1:]]), np.array(
+        [[v[k] for k in FEATURES] for v in output]
+    )
