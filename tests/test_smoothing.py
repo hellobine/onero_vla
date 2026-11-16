@@ -159,6 +159,27 @@ def test_normal_overlap_uses_upstream_same_timestep_aggregation(name, weight):
     queue.accept(0, old, 0.0)
     queue.accept(1, new, 0.1)
     assert queue.actions[0].values[1] == pytest.approx(weight * 2 + (1 - weight) * 10)
-    assert all(abs(a.values[0]) > 3 for a in queue.actions)
+    assert queue.actions[0].values[0] == pytest.approx(
+        weight * (math.pi - 0.02) + (1 - weight) * (-math.pi + 0.02)
+    )
     assert queue.actions[0].captured_at == 0.0
     assert queue.actions[-1].captured_at == 0.1
+
+
+def test_default_aggregation_matches_original_main_client_reference():
+    reference = json.loads(
+        (Path(__file__).parent / "fixtures/action_queue_main_reference.json").read_text()
+    )
+    assert reference["reference_main"].startswith("4fcfbcf2")
+    for case in reference["cases"]:
+        queue = ActionQueue(ProcessingConfig(inference_mode="kalman_filter"))
+        if case["latest"] >= 0:
+            queue.advance(case["latest"])
+        if case["old"]:
+            queue.accept(case["old_start"], case["old"], 0.0)
+        queue.accept(case["new_start"], case["new"], 0.1)
+        assert [a.step for a in queue.actions] == case["expected_steps"]
+        if queue.actions:
+            np.testing.assert_allclose(
+                [a.values for a in queue.actions], case["expected_actions"], rtol=1e-6, atol=1e-6
+            )

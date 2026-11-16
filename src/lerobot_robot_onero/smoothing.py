@@ -158,9 +158,9 @@ class QueuedAction:
     captured_at: float
 
 
-def blend_actions(previous, incoming, old_weight):
+def blend_actions(previous, incoming, old_weight, *, circular=True):
     value = old_weight * previous.values + (1 - old_weight) * incoming.values
-    for index in CYCLIC_INDICES:
+    for index in CYCLIC_INDICES if circular else ():
         delta = (incoming.values[index] - previous.values[index] + math.pi) % (
             2 * math.pi
         ) - math.pi
@@ -227,7 +227,7 @@ class ActionQueue:
             }[self.config.aggregate_fn_name]
             previous = {a.step: a for a in old}
             new = [
-                blend_actions(previous[a.step], a, old_weight)
+                blend_actions(previous[a.step], a, old_weight, circular=False)
                 if a.step in previous and old_weight
                 else a
                 for a in new

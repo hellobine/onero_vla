@@ -3,7 +3,7 @@ set -euo pipefail
 
 project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 lerobot_dir="$project_dir/../lerobot"
-release="0.3.3"
+release="0.3.4"
 extras=()
 while (($#)); do
   case "$1" in
@@ -17,7 +17,7 @@ while (($#)); do
     *) echo "Unknown option: $1" >&2; exit 2 ;;
   esac
 done
-[[ "$release" == "0.3.3" ]] || { echo "Unsupported release: $release" >&2; exit 2; }
+[[ "$release" == "0.3.4" ]] || { echo "Unsupported release: $release" >&2; exit 2; }
 lerobot_dir="$(cd -- "$lerobot_dir" && pwd -P)"
 expected_dir="$(cd -- "$project_dir/../lerobot" && pwd -P)"
 [[ "$lerobot_dir" == "$expected_dir" ]] || {
@@ -45,4 +45,4 @@ else
   uv sync --frozen --no-dev
 fi
 uv run --no-sync onero-infer --help
-echo "Installed 0.3.3. Configure configs/customer.yaml before connecting hardware."
+echo "Installed 0.3.4. Configure configs/customer.yaml before connecting hardware."

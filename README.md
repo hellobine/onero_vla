@@ -11,7 +11,7 @@ git clone --branch v0.7.0 https://github.com/huggingface/lerobot.git lerobot
 git -C lerobot checkout --detach 410c095eacc0011d998a73383eb94abed2715af0
 git clone --branch origin https://github.com/hellobine/onero_vla.git lerobot_robot_onero
 cd lerobot_robot_onero
-bash scripts/install.sh --lerobot-path ../lerobot --release 0.3.3
+bash scripts/install.sh --lerobot-path ../lerobot --release 0.3.4
 ```
 
 机器人站点基线为 Ubuntu 24.04 / Python 3.12 / ROS 2 Jazzy。
@@ -147,7 +147,8 @@ runtime:
 - `temporal_smoothing`：新旧动作块重叠区线性过渡，短重叠使用旧块末帧补齐。
 - 组合：`kalman_filter` 加 `kalman_temporal_smoothing: true`，先融合动作块，再执行卡尔曼。
 
-左右首关节使用圆周卡尔曼和最短角路径融合，避免跨 ±π 时穿过零点。
+左右首关节使用与主线一致的圆周卡尔曼；默认动作块融合沿用上游逐维线性加权。
+显式启用时序平滑时，重叠区的圆周关节使用最短角路径融合。
 普通关节的卡尔曼公式及默认参数与参考主线一致。融合窗口 `min_smooth_steps` 默认 8；
 预取阈值 `chunk_size_threshold` 默认 0.5，单独时序平滑可显式设为 0.8。
 普通重叠区按同一时间步聚合，默认 `aggregate_fn_name: weighted_average`（旧 0.3、新 0.7），

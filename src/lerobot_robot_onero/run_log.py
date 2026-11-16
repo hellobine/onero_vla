@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .protocol import FEATURES
+from .release import LEROBOT_COMMIT, LEROBOT_VERSION, VERSION
 
 
 class RunLog:
@@ -108,6 +109,9 @@ class RunLog:
         stopped = self.stopped_at if self.stopped_at is not None else time.monotonic()
         elapsed = stopped - self.epoch if self.epoch is not None else 0.0
         result = {
+            "adapter_version": VERSION,
+            "lerobot_version": LEROBOT_VERSION,
+            "lerobot_commit": LEROBOT_COMMIT,
             **outcome,
             "motion_enabled": self.motion,
             "motion_attempted": bool(self.command_attempts),
@@ -130,4 +134,5 @@ class RunLog:
                 self.file.close()
             except OSError as exc:
                 self._failed(exc)
+        result["logging_error"] = self.io_error
         self._document("result.json", result)

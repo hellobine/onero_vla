@@ -4,7 +4,7 @@ import importlib.metadata
 import subprocess
 from pathlib import Path
 
-VERSION = "0.3.3"
+VERSION = "0.3.4"
 LEROBOT_VERSION = "0.7.0"
 LEROBOT_COMMIT = "410c095eacc0011d998a73383eb94abed2715af0"
 
