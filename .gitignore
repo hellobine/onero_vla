@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+dist/
+runs/
+models/
+configs/customer.yaml
+configs/*.operator.yaml
+jax_runtime/.venv/
+jax_runtime_5090/.venv/
+.DS_Store
+._*
+.artifacts/

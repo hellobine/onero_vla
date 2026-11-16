@@ -1,0 +1,50 @@
+ros:
+  rmw_implementation: rmw_cyclonedds_cpp
+  zenoh_router: null
+robot:
+  model: a1
+  id: customer-a1
+  ros_domain_id: 0
+  left_joint_state_topic: /left_joint_states
+  right_joint_state_topic: /right_joint_states
+  left_gripper_state_topic: /left_gripper_state
+  right_gripper_state_topic: /right_gripper_state
+  joint_command_topic: /record_data
+  gripper_command_topic: /joystick_info
+  connect_timeout_s: 5.0
+  max_state_age_s: 0.2
+  command_timeout_s: 0.5
+  cameras:
+    head:
+      topic: /head/camera/rgb
+      width: 1600
+      height: 1200
+      fps: 30
+      ros_domain_id: 0
+    left:
+      topic: /left/camera/rgb
+      width: 1600
+      height: 1200
+      fps: 30
+      ros_domain_id: 0
+    right:
+      topic: /right/camera/rgb
+      width: 1600
+      height: 1200
+      fps: 30
+      ros_domain_id: 0
+model:
+  path: /absolute/path/to/pretrained_model
+  device: cuda
+  task: Fold the clothes
+runtime:
+  inference_mode: kalman_filter
+  kalman_temporal_smoothing: false
+  kalman_process_variance: 0.5
+  kalman_measurement_variance: 5.0
+  kalman_threshold: 0.075
+  kalman_scale_factor: 15.0
+  min_smooth_steps: 8
+  chunk_size_threshold: 0.5
+  max_chunk_age_s: 5.0
+  fps: 30
