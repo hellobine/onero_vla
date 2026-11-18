@@ -7,6 +7,7 @@ dist/
 runs/
 models/
 configs/customer.yaml
+configs/customer-*.yaml
 configs/*.operator.yaml
 jax_runtime/.venv/
 jax_runtime_5090/.venv/

@@ -97,6 +97,40 @@ JAX 强制 CUDA、关闭预分配；Thor 配置关闭 Triton GEMM、command buff
 
 ## 检查与推理
 
+### Torch 与 JAX 并列部署
+
+同一项目通过 `model.backend` 选择后端，不需要更换代码或覆盖已有模型。
+保留站点当前配置为 `configs/customer-jax.yaml`，另建
+`configs/customer-torch.yaml`；两份文件各自绑定模型、统计与离线 tokenizer。
+Torch 可参考 `configs/a1.pi05-torch.example.yaml`，机器人话题、相机和 ROS
+通信设置沿用该站点已经验证的值；H1 设置 `robot.model: h1`。
+
+| 配置 | 后端 | 模型资源 |
+| --- | --- | --- |
+| `customer-jax.yaml` | `openpi_jax` | 原生 params、统计、SentencePiece，独立 JAX 环境 |
+| `customer-torch.yaml` | `lerobot_torch` | safetensors、LeRobot 处理器与统计、离线 HF tokenizer，主环境 |
+
+Torch 模型目录示例：
+
+```text
+models/pi05-torch/
+├── pretrained_model/   # 原始 LeRobot 权重、配置、处理器、统计、onero_model.json
+├── tokenizer/          # tokenizer.json、tokenizer.model、tokenizer_config.json 等
+└── provenance/         # artifact manifest、下载校验和契约来源
+```
+
+每份配置分别执行 `check`、`preflight`。正式推理时选择其一，运行至 Ctrl+C：
+
+```bash
+source /opt/ros/jazzy/setup.bash
+# Torch
+uv run --no-sync onero-infer run --config configs/customer-torch.yaml --enable-motion
+# JAX（结束上一个推理进程后运行）
+uv run --no-sync onero-infer run --config configs/customer-jax.yaml --enable-motion
+```
+
+### 连接检查与无动作预检
+
 ```bash
 uv run --no-sync onero-infer config --config configs/customer.yaml
 uv run --no-sync onero-infer check --config configs/customer.yaml
